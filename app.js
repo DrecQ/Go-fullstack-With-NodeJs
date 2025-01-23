@@ -1,81 +1,107 @@
 import express from 'express';
 import mongoose from 'mongoose';
+import dotenv from 'dotenv';
+import cors from 'cors';
+import helmet from 'helmet';
+import morgan from 'morgan';
 import Thing from './models/Thing.js';
 
+/**
+ * Pour les importations : 
+ * dotenv pour gérer les variabes d'environnement
+ * cors pour gérer les headers. C'est une librairie qui me permet de relier deux applications de  sources différentes.
+ * helmet gère la sécurité de l'application
+ * morgan permet de gérer les logs http
+ * Thing est mon model de données 
+ */
+
+dotenv.config();
 const app = express();
 
-// Connexion à MongoDB
-mongoose.connect('mongodb+srv://Drec_Mongo:mongo12345@cluster0.sa1ic.mongodb.net/', {})
-  .then(() => console.log('Connexion à MongoDB réussie !'))
-  .catch((error) => console.log('Connexion à MongoDB échouée !', error));
-
-//mongodb+srv://Drec_Mongo:<db_password>@cluster0.sa1ic.mongodb.net/
-
-//Ici je permet à express qui est une librairie de routing de récupérer 
-//tous les éléments qui seront envoyés au format json par mon application
+// Middleware de base
+/**
+ * Ici je fais une sorte d'initialisation de mon application
+ * je n'autorise que les données au format json
+ * je fais une connexion entre ma partie frontend avec angular et le backend avec nodejs grâce à Cors
+ * j'améliore la sécurité avec helmet
+ * je lance morgan pour commencer à écrire le journal de mon api 
+ */
 app.use(express.json());
+app.use(cors());
+app.use(helmet());
+app.use(morgan('dev'));
 
-//Ici je met en place un middleware
-//Un middleware est une fonction qui analyse les requêtes et les reponses de mon api
-//Dans ce cas ce middleware nous permet de définir des headers pour contourner l'erreur CORS
-//Le CORS, Cross Origin Resources Share, est une sécurité mise en place pour empêcher les requêtes malveillantes
-//Cette sécurité empêche des appareils de différentes sources de communiqué. Dans notre cas, Angular et Node Js
-
-app.use((req, res, next) => {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content, Accept, Content-Type, Authorization');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
-  next();
-});
-
-//Ici, je définis un middleware avec la méthode POST qui permet la création des donneés au format json
-//JSON pour JavaScript Object Notation 
-// Route POST : Création d'un objet dans MongoDB
-app.post('/api/stuff', (req, res, next) => {
-  const thing = new Thing({
-    ...req.body,
-    _id: undefined, // Supprime explicitement l'ID pour éviter des conflits
+// Connexion à MongoDB
+/**
+ * Pour la connexion à la base de données j'utilise une variable défini dans le fichier .env pour protéger mes identifiants de connexion
+ */
+mongoose.connect(process.env.MONGO_URI, {})
+  .then(() => console.log('✅ Connexion à MongoDB réussie !'))
+  .catch((error) => {
+    console.error('❌ Connexion à MongoDB échouée !', error.message);
+    process.exit(1);
   });
-  thing.save()
-    .then(() => res.status(201).json({ message: 'Objet enregistré !' }))
-    .catch((error) => res.status(400).json({ error }));
+
+// Routes
+app.post('/api/stuff', async (req, res) => {
+  try {
+    delete req.body._id;
+    const thing = new Thing({ ...req.body });
+    await thing.save();
+    res.status(201).json({ message: 'Objet enregistré !' });
+  } catch (error) {
+    res.status(400).json({ message: 'Erreur lors de la création', error: error.message });
+  }
 });
 
-// Route GET : Récupération d'un objet spécifique depuis MongoDB
-app.get('/api/stuff/:id', (req, res, next) => {
-  Thing.findOne({_id: req.params.id})
-    .then((thing) => {
-      if (thing) {
-        res.status(200).json(thing);
-      } else {
-        res.status(404).json({ message: 'Objet non trouvé !' });
-      }
-    })
-    .catch((error) => res.status(400).json({ error }));
+app.get('/api/stuff', async (req, res) => {
+  try {
+    const things = await Thing.find();
+    res.status(200).json(things);
+  } catch (error) {
+    res.status(400).json({ message: 'Erreur lors de la récupération', error: error.message });
+  }
 });
 
+app.get('/api/stuff/:id', async (req, res) => {
+  try {
+    const thing = await Thing.findOne({ _id: req.params.id });
+    res.status(200).json(thing);
+  } catch (error) {
+    res.status(404).json({ message: 'Objet non trouvé', error: error.message });
+  }
+});
 
-//Le middleware ici avec la methode get me permet d'aller récupérer les données depuis l'url 
-app.get('/api/stuff', (req, res, next) => {
-  const stuff = [
-    {
-      _id: 'oeihfzeoi',
-      title: 'Mon premier objet',
-      description: 'Les infos de mon premier objet',
-      imageUrl: 'https://cdn.pixabay.com/photo/2019/06/11/18/56/camera-4267692_1280.jpg',
-      price: 4900,
-      userId: 'qsomihvqios',
-    },
-    {
-      _id: 'oeihfzeomoihi',
-      title: 'Mon deuxième objet',
-      description: 'Les infos de mon deuxième objet',
-      imageUrl: 'https://cdn.pixabay.com/photo/2019/06/11/18/56/camera-4267692_1280.jpg',
-      price: 2900,
-      userId: 'qsomihvqios',
-    },
-  ];
-  res.status(200).json(stuff);
+app.put('/api/stuff/:id', async (req, res) => {
+  try {
+    // Récupérer l'ID de l'objet depuis les paramètres
+    const { id } = _id.req.params;
+
+    // Vérifier si l'objet existe dans la base
+    const existingThing = await Thing.findById(id);
+    if (!existingThing) {
+      return res.status(404).json({ message: 'Objet non trouvé.' });
+    }
+
+    // Mettre à jour l'objet avec les données envoyées
+    const updatedThing = await Thing.findByIdAndUpdate(
+      id,
+      { ...req.body }, // Les nouvelles données
+      { new: true, runValidators: true } // Options : retourne l'objet mis à jour et valide les données
+    );
+
+    // Répondre avec l'objet mis à jour
+    res.status(200).json({ message: 'Objet mis à jour avec succès !', updatedThing });
+  } catch (error) {
+    // Gestion des erreurs
+    res.status(400).json({ message: 'Erreur lors de la mise à jour.', error: error.message });
+  }
+});
+
+// Middleware global pour gérer les erreurs
+app.use((err, req, res, next) => {
+  console.error(err.stack);
+  res.status(500).json({ message: 'Une erreur interne est survenue', error: err.message });
 });
 
 export default app;
